@@ -17,8 +17,35 @@ namespace ReFound.Migrations
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "10.0.13");
 
-            modelBuilder.Entity("ReFound.Models.FoundItem", b =>
             modelBuilder.Entity("ReFound.Models.ClaimRequest", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("ClaimDate")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("ClaimantUserId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("FoundItemId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("ProofOfOwnership")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("ClaimRequests");
+                });
+
+            modelBuilder.Entity("ReFound.Models.FoundItem", b =>
                 {
                     b.Property<int>("Id")
                         .ValueGeneratedOnAdd()
@@ -45,17 +72,6 @@ namespace ReFound.Migrations
                     b.Property<string>("LocationFound")
                         .IsRequired()
                         .HasMaxLength(150)
-                    b.Property<DateTime>("ClaimDate")
-                        .HasColumnType("TEXT");
-
-                    b.Property<int>("ClaimantUserId")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<int>("FoundItemId")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<string>("ProofOfOwnership")
-                        .IsRequired()
                         .HasColumnType("TEXT");
 
                     b.Property<string>("Status")
@@ -65,7 +81,41 @@ namespace ReFound.Migrations
                     b.HasKey("Id");
 
                     b.ToTable("FoundItems");
-                    b.ToTable("ClaimRequests");
+                });
+
+            modelBuilder.Entity("ReFound.Models.LostItemReport", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("ContactInfo")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("DateLost")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Description")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Location")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("LostItemReports");
                 });
 #pragma warning restore 612, 618
         }
