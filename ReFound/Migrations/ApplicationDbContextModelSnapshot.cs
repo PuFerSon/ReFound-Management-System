@@ -17,12 +17,34 @@ namespace ReFound.Migrations
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "10.0.13");
 
+            modelBuilder.Entity("ReFound.Models.FoundItem", b =>
             modelBuilder.Entity("ReFound.Models.ClaimRequest", b =>
                 {
                     b.Property<int>("Id")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("INTEGER");
 
+                    b.Property<string>("Category")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("DateFound")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Description")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ItemName")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("LocationFound")
+                        .IsRequired()
+                        .HasMaxLength(150)
                     b.Property<DateTime>("ClaimDate")
                         .HasColumnType("TEXT");
 
@@ -42,6 +64,7 @@ namespace ReFound.Migrations
 
                     b.HasKey("Id");
 
+                    b.ToTable("FoundItems");
                     b.ToTable("ClaimRequests");
                 });
 #pragma warning restore 612, 618
