@@ -29,7 +29,18 @@
 
             <div class="mb-3">
                 <label asp-for="Category" class="form-label"></label>
-                <input asp-for="Category" class="form-control" />
+                <select asp-for="Category" class="form-select">
+                    <option value="">-- Select Category --</option>
+                    <option value="Electronics">Electronics</option>
+                    <option value="Bags & Wallets">Bags &amp; Wallets</option>
+                    <option value="Clothing & Accessories">Clothing &amp; Accessories</option>
+                    <option value="Drinkware & Lunchboxes">Drinkware &amp; Lunchboxes</option>
+                    <option value="IDs & Cards">IDs &amp; Cards</option>
+                    <option value="Books & Stationery">Books &amp; Stationery</option>
+                    <option value="Keys & Umbrellas">Keys &amp; Umbrellas</option>
+                    <option value="Eyewear">Eyewear</option>
+                    <option value="Other">Other</option>
+                </select>
                 <span asp-validation-for="Category" class="text-danger"></span>
             </div>
 
@@ -43,6 +54,13 @@
                 <label asp-for="LocationFound" class="form-label"></label>
                 <input asp-for="LocationFound" class="form-control" />
                 <span asp-validation-for="LocationFound" class="text-danger"></span>
+            </div>
+
+            <div class="mb-3">
+                <label asp-for="AdminNotes" class="form-label"></label>
+                <textarea asp-for="AdminNotes" class="form-control" rows="2"
+                          placeholder="e.g., Lock screen wallpaper, serial number, or inside pocket contents (only visible to Admins)"></textarea>
+                <span asp-validation-for="AdminNotes" class="text-danger"></span>
             </div>
 
             <div class="mb-3">

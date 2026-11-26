@@ -33,4 +33,8 @@ public class FoundItem
 
     [Display(Name = "Item Photo")]
     public string? ImagePath { get; set; }
+
+    [StringLength(500)]
+    [Display(Name = "Admin-Only Verification Notes (Hidden from Public)")]
+    public string? AdminNotes { get; set; }
 }

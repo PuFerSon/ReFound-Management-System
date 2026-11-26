@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Text;
 using System.Text.Json;
@@ -9,7 +10,6 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.AspNetCore.Mvc.Rendering;
 using Microsoft.EntityFrameworkCore;
 using ReFound.Data;
 using ReFound.Models;
@@ -23,6 +23,9 @@ namespace ReFound.Controllers
         private readonly IHttpClientFactory _httpClientFactory;
         private readonly IWebHostEnvironment _env;
 
+        private static readonly string[] AllowedExtensions = { ".jpg", ".jpeg", ".png", ".webp" };
+        private const long MaxFileSizeBytes = 5 * 1024 * 1024;
+
         public FoundItemsController(
             ApplicationDbContext context,
             IConfiguration configuration,
@@ -35,57 +38,65 @@ namespace ReFound.Controllers
             _env = env;
         }
 
-        // GET: FoundItems
         public async Task<IActionResult> Index()
         {
             return View(await _context.FoundItems.ToListAsync());
         }
 
-        // SmartSEARCH API - Hybrid Synonym/Keyword + Local Ollama AI Ranking
+        [HttpGet]
+        [Authorize(Roles = "Admin")]
+        public async Task<IActionResult> ExportCsv()
+        {
+            var items = await _context.FoundItems
+                .OrderByDescending(i => i.Id)
+                .ToListAsync();
+
+            var csv = new StringBuilder();
+            csv.AppendLine("ID,Item Name,Category,Location Found,Date Found,Status,Admin Verification Notes");
+
+            foreach (var item in items)
+            {
+                csv.AppendLine(string.Join(",",
+                    item.Id,
+                    EscapeCsv(item.ItemName),
+                    EscapeCsv(item.Category),
+                    EscapeCsv(item.LocationFound),
+                    EscapeCsv(item.DateFound.ToString("yyyy-MM-dd")),
+                    EscapeCsv(item.Status),
+                    EscapeCsv(item.AdminNotes)
+                ));
+            }
+
+            var fileName = $"ReFound_Inventory_{DateTime.Now:yyyy-MM-dd}.csv";
+            var bytes = Encoding.UTF8.GetPreamble().Concat(Encoding.UTF8.GetBytes(csv.ToString())).ToArray();
+            return File(bytes, "text/csv", fileName);
+        }
+
         [HttpGet("/FoundItems/SmartSearch")]
-        public async Task<IActionResult> SmartSearch(string query)
+        public async Task<IActionResult> SmartSearch(string query, CancellationToken cancellationToken)
         {
             if (string.IsNullOrWhiteSpace(query))
             {
-                return Json(await _context.FoundItems.Select(i => i.Id).ToListAsync());
+                return Json(await _context.FoundItems.Select(i => i.Id).ToListAsync(cancellationToken));
             }
 
             var items = await _context.FoundItems
                 .Select(i => new { i.Id, i.ItemName, i.Category, i.Description, i.LocationFound })
-                .ToListAsync();
+                .ToListAsync(cancellationToken);
 
-            // 1. Fast local keyword + campus synonym scoring
-            var synonymGroups = new List<string[]>
+            var stopWords = new HashSet<string>
             {
-                new[] { "jacket", "hoodie", "sweater", "coat", "cardigan", "windbreaker", "clothing" },
-                new[] { "tumbler", "bottle", "flask", "aquaflask", "hydroflask", "mug", "drink" },
-                new[] { "earphones", "earbuds", "airpods", "headphones", "headset", "audio" },
-                new[] { "charger", "adapter", "power", "brick", "cable", "cord" },
-                new[] { "usb", "flash", "drive", "thumb", "sandisk", "storage" },
-                new[] { "glasses", "eyeglasses", "spectacles", "frames", "case" },
-                new[] { "bag", "backpack", "pouch", "wallet", "purse" },
-                new[] { "phone", "iphone", "android", "mobile", "cellphone" },
-                new[] { "umbrella", "rain", "raincoat" }
+                "the", "a", "an", "and", "or", "for", "with", "in", "on", "at", "to", "of",
+                "my", "i", "it", "is", "was", "left", "lost", "found", "something", "thing",
+                "things", "item", "items", "stuff", "used", "where", "people", "near", "by", "from"
             };
 
             var queryWords = query.ToLowerInvariant()
-                .Split(new[] { ' ', ',', '.', '-', '/', '(', ')' }, StringSplitOptions.RemoveEmptyEntries)
-                .Where(w => w.Length > 1)
+                .Split(new[] { ' ', ',', '.', '!', '?', '-', '_', '/', '(', ')', '"', '\'' }, StringSplitOptions.RemoveEmptyEntries)
+                .Where(w => w.Length > 1 && !stopWords.Contains(w))
                 .ToHashSet();
 
-            var expandedTerms = new HashSet<string>(queryWords);
-            foreach (var word in queryWords)
-            {
-                foreach (var group in synonymGroups)
-                {
-                    if (group.Any(g => g.Contains(word) || word.Contains(g)))
-                    {
-                        foreach (var syn in group) expandedTerms.Add(syn);
-                    }
-                }
-            }
-
-            var scores = items.ToDictionary(i => i.Id, _ => 0);
+            var keywordScores = items.ToDictionary(i => i.Id, _ => 0);
 
             foreach (var item in items)
             {
@@ -94,37 +105,28 @@ namespace ReFound.Controllers
                 string cat = item.Category.ToLowerInvariant();
                 string loc = item.LocationFound.ToLowerInvariant();
 
-                foreach (var term in expandedTerms)
+                foreach (var word in queryWords)
                 {
-                    bool isOriginalWord = queryWords.Contains(term);
-                    int weight = isOriginalWord ? 10 : 7;
-
-                    if (title.Contains(term)) scores[item.Id] += weight * 3;
-                    if (desc.Contains(term)) scores[item.Id] += weight * 2;
-                    if (cat.Contains(term)) scores[item.Id] += weight;
-                    if (loc.Contains(term)) scores[item.Id] += weight * 2;
+                    if (title.Contains(word)) keywordScores[item.Id] += 30;
+                    if (desc.Contains(word)) keywordScores[item.Id] += 20;
+                    if (cat.Contains(word)) keywordScores[item.Id] += 10;
+                    if (loc.Contains(word)) keywordScores[item.Id] += 20;
                 }
             }
 
-            // 2. Also ask Ollama refound-model for semantic context boost
             try
             {
                 var formattedItems = string.Join("\n", items.Select(i =>
-                    $"ID {i.Id}: {i.ItemName} | Category: {i.Category} | Description: {i.Description} | Location: {i.LocationFound}"
+                    $"{i.Id}: {i.ItemName} [{i.Category}] - {i.Description} | Found: {i.LocationFound}"
                 ));
-
-                string endpoint = "http://localhost:11434/api/chat";
-                var systemPrompt = @"You are a strict Lost & Found search matcher.
-Given a USER QUERY and ITEMS, identify ONLY the item IDs that match the query.
-First write a 1-sentence reason, then output the matching integer IDs. Return empty ids if nothing matches.";
 
                 var requestPayload = new
                 {
                     model = "refound-model",
+                    keep_alive = "30m",
                     messages = new[]
                     {
-                        new { role = "system", content = systemPrompt },
-                        new { role = "user", content = $"USER QUERY: \"{query}\"\n\nITEMS:\n{formattedItems}" }
+                        new { role = "user", content = $"Query: {query}\nItems:\n{formattedItems}" }
                     },
                     stream = false,
                     format = new
@@ -132,56 +134,71 @@ First write a 1-sentence reason, then output the matching integer IDs. Return em
                         type = "object",
                         properties = new
                         {
-                            reason = new { type = "string" },
                             ids = new { type = "array", items = new { type = "integer" } }
                         },
-                        required = new[] { "reason", "ids" }
+                        required = new[] { "ids" }
                     },
-                    options = new { temperature = 0 }
+                    options = new { temperature = 0, num_predict = 150 }
                 };
 
                 var client = _httpClientFactory.CreateClient();
                 client.Timeout = TimeSpan.FromSeconds(15);
                 var content = new StringContent(JsonSerializer.Serialize(requestPayload), Encoding.UTF8, "application/json");
-                var response = await client.PostAsync(endpoint, content);
+                var response = await client.PostAsync("http://localhost:11434/api/chat", content, cancellationToken);
 
                 if (response.IsSuccessStatusCode)
                 {
-                    var jsonResponse = await response.Content.ReadAsStringAsync();
+                    var jsonResponse = await response.Content.ReadAsStringAsync(cancellationToken);
                     using var doc = JsonDocument.Parse(jsonResponse);
                     var rawResult = doc.RootElement.GetProperty("message").GetProperty("content").GetString()?.Trim() ?? "{}";
+
+                    int startIdx = rawResult.IndexOf('{');
+                    int endIdx = rawResult.IndexOf('}');
+                    if (startIdx >= 0 && endIdx > startIdx)
+                    {
+                        rawResult = rawResult.Substring(startIdx, endIdx - startIdx + 1);
+                    }
+
                     using var resultDoc = JsonDocument.Parse(rawResult);
 
                     if (resultDoc.RootElement.TryGetProperty("ids", out var idsElement))
                     {
-                        int rankBonus = 8;
+                        var aiIds = new List<int>();
                         foreach (var el in idsElement.EnumerateArray())
                         {
-                            if (el.TryGetInt32(out int id) && scores.ContainsKey(id))
+                            if (el.TryGetInt32(out int id) && keywordScores.ContainsKey(id) && !aiIds.Contains(id))
                             {
-                                scores[id] += Math.Max(rankBonus, 2);
-                                rankBonus -= 2;
+                                aiIds.Add(id);
                             }
                         }
+
+                        var exactKeywordIds = keywordScores
+                            .Where(kv => kv.Value > 0 && !aiIds.Contains(kv.Key))
+                            .OrderByDescending(kv => kv.Value)
+                            .Select(kv => kv.Key);
+
+                        return Json(aiIds.Concat(exactKeywordIds).ToList());
                     }
                 }
             }
+            catch (OperationCanceledException)
+            {
+                return Json(new List<int>());
+            }
             catch (Exception ex)
             {
-                Console.WriteLine($"Ollama fallback to keyword/synonym search: {ex.Message}");
+                Console.WriteLine($"Ollama fallback to keyword search: {ex.Message}");
             }
 
-            // Return all items with a positive match score, ordered highest score first
-            var rankedIds = scores
+            var fallbackIds = keywordScores
                 .Where(kv => kv.Value > 0)
                 .OrderByDescending(kv => kv.Value)
                 .Select(kv => kv.Key)
                 .ToList();
 
-            return Json(rankedIds);
+            return Json(fallbackIds);
         }
 
-        // GET: FoundItems/Details/5
         public async Task<IActionResult> Details(int? id)
         {
             if (id == null)
@@ -199,19 +216,19 @@ First write a 1-sentence reason, then output the matching integer IDs. Return em
             return View(foundItem);
         }
 
-        // GET: FoundItems/Create
         [Authorize(Roles = "Admin")]
         public IActionResult Create()
         {
             return View();
         }
 
-        // POST: FoundItems/Create
         [HttpPost]
         [ValidateAntiForgeryToken]
         [Authorize(Roles = "Admin")]
-        public async Task<IActionResult> Create([Bind("Id,ItemName,Description,Category,DateFound,LocationFound,Status")] FoundItem foundItem, IFormFile? imageFile)
+        public async Task<IActionResult> Create([Bind("Id,ItemName,Description,Category,DateFound,LocationFound,Status,AdminNotes")] FoundItem foundItem, IFormFile? imageFile)
         {
+            ValidateImageFile(imageFile);
+
             if (ModelState.IsValid)
             {
                 if (imageFile != null && imageFile.Length > 0)
@@ -226,7 +243,6 @@ First write a 1-sentence reason, then output the matching integer IDs. Return em
             return View(foundItem);
         }
 
-        // GET: FoundItems/Edit/5
         [Authorize(Roles = "Admin")]
         public async Task<IActionResult> Edit(int? id)
         {
@@ -243,16 +259,17 @@ First write a 1-sentence reason, then output the matching integer IDs. Return em
             return View(foundItem);
         }
 
-        // POST: FoundItems/Edit/5
         [HttpPost]
         [ValidateAntiForgeryToken]
         [Authorize(Roles = "Admin")]
-        public async Task<IActionResult> Edit(int id, [Bind("Id,ItemName,Description,Category,DateFound,LocationFound,Status,ImagePath")] FoundItem foundItem, IFormFile? imageFile)
+        public async Task<IActionResult> Edit(int id, [Bind("Id,ItemName,Description,Category,DateFound,LocationFound,Status,ImagePath,AdminNotes")] FoundItem foundItem, IFormFile? imageFile)
         {
             if (id != foundItem.Id)
             {
                 return NotFound();
             }
+
+            ValidateImageFile(imageFile);
 
             if (ModelState.IsValid)
             {
@@ -282,7 +299,6 @@ First write a 1-sentence reason, then output the matching integer IDs. Return em
             return View(foundItem);
         }
 
-        // GET: FoundItems/Delete/5
         [Authorize(Roles = "Admin")]
         public async Task<IActionResult> Delete(int? id)
         {
@@ -301,7 +317,6 @@ First write a 1-sentence reason, then output the matching integer IDs. Return em
             return View(foundItem);
         }
 
-        // POST: FoundItems/Delete/5
         [HttpPost, ActionName("Delete")]
         [ValidateAntiForgeryToken]
         [Authorize(Roles = "Admin")]
@@ -322,12 +337,35 @@ First write a 1-sentence reason, then output the matching integer IDs. Return em
             return _context.FoundItems.Any(e => e.Id == id);
         }
 
+        private static string EscapeCsv(string? value)
+        {
+            if (string.IsNullOrEmpty(value)) return "\"\"";
+            return $"\"{value.Replace("\"", "\"\"").Replace("\r\n", " ").Replace("\n", " ")}\"";
+        }
+
+        private void ValidateImageFile(IFormFile? imageFile)
+        {
+            if (imageFile == null || imageFile.Length == 0) return;
+
+            var ext = Path.GetExtension(imageFile.FileName).ToLowerInvariant();
+            if (!AllowedExtensions.Contains(ext))
+            {
+                ModelState.AddModelError("ImagePath", "Only .jpg, .jpeg, .png, and .webp image files are allowed.");
+            }
+
+            if (imageFile.Length > MaxFileSizeBytes)
+            {
+                ModelState.AddModelError("ImagePath", "Image size cannot exceed 5 MB.");
+            }
+        }
+
         private async Task<string> SaveImageAsync(IFormFile imageFile)
         {
             string uploadsFolder = Path.Combine(_env.WebRootPath, "uploads");
             Directory.CreateDirectory(uploadsFolder);
 
-            string uniqueFileName = $"{Guid.NewGuid()}_{Path.GetFileName(imageFile.FileName)}";
+            string ext = Path.GetExtension(imageFile.FileName).ToLowerInvariant();
+            string uniqueFileName = $"{Guid.NewGuid()}{ext}";
             string filePath = Path.Combine(uploadsFolder, uniqueFileName);
 
             using (var stream = new FileStream(filePath, FileMode.Create))

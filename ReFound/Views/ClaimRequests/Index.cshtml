@@ -1,77 +1,96 @@
 @model IEnumerable<ReFound.Models.ClaimRequest>
 
 @{
-    ViewData["Title"] = "Claim Requests Index";
+    ViewData["Title"] = "Claim Requests";
+    var itemNames = ViewBag.ItemNames as Dictionary<int, string> ?? new Dictionary<int, string>();
+    var userNames = ViewBag.UserNames as Dictionary<int, string> ?? new Dictionary<int, string>();
 }
 
-<h1>Claim Requests</h1>
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h1 class="mb-0">@(User.IsInRole("Admin") ? "All Claim Requests" : "My Claim Requests")</h1>
+</div>
 
-<p>
-    <a asp-action="Create" class="btn btn-primary">Create New</a>
-</p>
+<div class="mb-4">
+    <input type="text" id="claimSearchBox" class="form-control form-control-lg"
+           placeholder="Search claims by item name, claimant, proof, or status..." />
+</div>
 
-<!-- Live Search Input Box -->
-<input type="text" id="claimSearchBox" class="form-control mb-3"
-       placeholder="Live search claims by Item ID, User ID, proof, or status - Kazuyoshi" />
+<div class="table-responsive">
+    <table class="table table-hover align-middle">
+        <thead>
+            <tr>
+                <th>Found Item</th>
+                <th>Claimant</th>
+                <th>@Html.DisplayNameFor(model => model.ClaimDate)</th>
+                <th>@Html.DisplayNameFor(model => model.ProofOfOwnership)</th>
+                <th>@Html.DisplayNameFor(model => model.Status)</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody id="claimRows">
+            @foreach (var item in Model)
+            {
+                var itemName = item.FoundItemId.HasValue && itemNames.ContainsKey(item.FoundItemId.Value)
+                    ? itemNames[item.FoundItemId.Value]
+                    : $"Item #{item.FoundItemId}";
 
-<table class="table">
-    <thead>
-        <tr>
-            <th>
-                @Html.DisplayNameFor(model => model.FoundItemId)
-            </th>
-            <th>
-                @Html.DisplayNameFor(model => model.ClaimantUserId)
-            </th>
-            <th>
-                @Html.DisplayNameFor(model => model.ClaimDate)
-            </th>
-            <th>
-                @Html.DisplayNameFor(model => model.ProofOfOwnership)
-            </th>
-            <th>
-                @Html.DisplayNameFor(model => model.Status)
-            </th>
-            <th></th>
-        </tr>
-    </thead>
-    <!-- Added id="claimRows" to target table rows -->
-    <tbody id="claimRows">
-@foreach (var item in Model) {
-        <tr>
-            <td>
-                @Html.DisplayFor(modelItem => item.FoundItemId)
-            </td>
-            <td>
-                @Html.DisplayFor(modelItem => item.ClaimantUserId)
-            </td>
-            <td>
-                @Html.DisplayFor(modelItem => item.ClaimDate)
-            </td>
-            <td>
-                @Html.DisplayFor(modelItem => item.ProofOfOwnership)
-            </td>
-            <td>
-                @Html.DisplayFor(modelItem => item.Status)
-            </td>
-            <td>
-                <a asp-action="Edit" asp-route-id="@item.Id">Edit</a> |
-                <a asp-action="Details" asp-route-id="@item.Id">Details</a> |
-                <a asp-action="Delete" asp-route-id="@item.Id">Delete</a>
-            </td>
-        </tr>
-}
-    </tbody>
-</table>
+                var userName = item.ClaimantUserId.HasValue && userNames.ContainsKey(item.ClaimantUserId.Value)
+                    ? userNames[item.ClaimantUserId.Value]
+                    : $"User #{item.ClaimantUserId}";
 
-<!-- Client-Side Live Search Script -->
+                <tr>
+                    <td class="fw-semibold">@itemName</td>
+                    <td>@userName</td>
+                    <td>@(item.ClaimDate.HasValue ? item.ClaimDate.Value.ToString("MMM dd, yyyy h:mm tt") : "N/A")</td>
+                    <td>@Html.DisplayFor(modelItem => item.ProofOfOwnership)</td>
+                    <td>
+                        @if (item.Status == "Approved")
+                        {
+                            <span class="badge bg-success">Approved</span>
+                        }
+                        else if (item.Status == "Rejected")
+                        {
+                            <span class="badge bg-danger">Rejected</span>
+                        }
+                        else
+                        {
+                            <span class="badge bg-warning text-dark">@item.Status</span>
+                        }
+                    </td>
+                    <td>
+                        <div class="d-flex flex-wrap gap-2">
+                            <a asp-action="Details" asp-route-id="@item.Id" class="btn btn-sm btn-outline-info">Details</a>
+
+                            @if (User.IsInRole("Admin"))
+                            {
+                                @if (item.Status == "Pending")
+                                {
+                                    <form asp-action="Approve" asp-route-id="@item.Id" method="post" class="d-inline">
+                                        @Html.AntiForgeryToken()
+                                        <button type="submit" class="btn btn-sm btn-success">Approve</button>
+                                    </form>
+                                    <form asp-action="Reject" asp-route-id="@item.Id" method="post" class="d-inline">
+                                        @Html.AntiForgeryToken()
+                                        <button type="submit" class="btn btn-sm btn-outline-danger">Reject</button>
+                                    </form>
+                                }
+                                <a asp-action="Edit" asp-route-id="@item.Id" class="btn btn-sm btn-outline-warning">Edit</a>
+                                <a asp-action="Delete" asp-route-id="@item.Id" class="btn btn-sm btn-outline-danger">Delete</a>
+                            }
+                        </div>
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </table>
+</div>
+
 @section Scripts {
 <script>
     document.getElementById("claimSearchBox").addEventListener("input", function () {
         const text = this.value.toLowerCase();
 
         document.querySelectorAll("#claimRows tr").forEach(function (row) {
-            // Checks FoundItemId (cell 0), ClaimantUserId (cell 1), ProofOfOwnership (cell 3), and Status (cell 4)
             const rowText = (row.cells[0].textContent + " " +
                              row.cells[1].textContent + " " +
                              row.cells[3].textContent + " " +

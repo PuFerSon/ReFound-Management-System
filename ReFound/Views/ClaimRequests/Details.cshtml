@@ -1,48 +1,96 @@
 @model ReFound.Models.ClaimRequest
 
 @{
-    ViewData["Title"] = "Details";
+    ViewData["Title"] = "Claim Details";
+    var foundItem = ViewBag.FoundItem as ReFound.Models.FoundItem;
 }
 
-<h1>Details</h1>
+<h1>Claim Request Details</h1>
+
+@if (User.IsInRole("Admin") && foundItem != null)
+{
+    <div class="card border-warning mb-4">
+        <div class="card-header bg-warning text-dark fw-bold">
+            Admin Blind Verification Check — @foundItem.ItemName
+        </div>
+        <div class="card-body">
+            <div class="row">
+                <div class="col-md-6 mb-2 mb-md-0">
+                    <label class="form-label text-muted small mb-1">Admin-Only Secret Verification Notes:</label>
+                    <div class="p-2 border rounded border-secondary">
+                        @(string.IsNullOrWhiteSpace(foundItem.AdminNotes) ? "No secret verification notes recorded for this item." : foundItem.AdminNotes)
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label text-muted small mb-1">Student's Submitted Proof of Ownership:</label>
+                    <div class="p-2 border rounded border-info">
+                        @Model.ProofOfOwnership
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+}
 
 <div>
-    <h4>ClaimRequest</h4>
+    <h4>Claim #@Model.Id</h4>
     <hr />
     <dl class="row">
-        <dt class = "col-sm-2">
-            @Html.DisplayNameFor(model => model.FoundItemId)
-        </dt>
-        <dd class = "col-sm-10">
-            @Html.DisplayFor(model => model.FoundItemId)
+        <dt class="col-sm-3">Found Item</dt>
+        <dd class="col-sm-9">
+            @(foundItem != null ? $"{foundItem.ItemName} ({foundItem.LocationFound})" : $"Item #{Model.FoundItemId}")
         </dd>
-        <dt class = "col-sm-2">
-            @Html.DisplayNameFor(model => model.ClaimantUserId)
-        </dt>
-        <dd class = "col-sm-10">
-            @Html.DisplayFor(model => model.ClaimantUserId)
+
+        <dt class="col-sm-3">@Html.DisplayNameFor(model => model.ClaimDate)</dt>
+        <dd class="col-sm-9">
+            @(Model.ClaimDate.HasValue ? Model.ClaimDate.Value.ToString("MMM dd, yyyy h:mm tt") : "N/A")
         </dd>
-        <dt class = "col-sm-2">
-            @Html.DisplayNameFor(model => model.ClaimDate)
-        </dt>
-        <dd class = "col-sm-10">
-            @Html.DisplayFor(model => model.ClaimDate)
+
+        <dt class="col-sm-3">@Html.DisplayNameFor(model => model.ProofOfOwnership)</dt>
+        <dd class="col-sm-9">@Html.DisplayFor(model => model.ProofOfOwnership)</dd>
+
+        <dt class="col-sm-3">@Html.DisplayNameFor(model => model.Status)</dt>
+        <dd class="col-sm-9">
+            @if (Model.Status == "Approved")
+            {
+                <span class="badge bg-success">Approved</span>
+            }
+            else if (Model.Status == "Rejected")
+            {
+                <span class="badge bg-danger">Rejected</span>
+            }
+            else
+            {
+                <span class="badge bg-warning text-dark">@Model.Status</span>
+            }
         </dd>
-        <dt class = "col-sm-2">
-            @Html.DisplayNameFor(model => model.ProofOfOwnership)
-        </dt>
-        <dd class = "col-sm-10">
-            @Html.DisplayFor(model => model.ProofOfOwnership)
-        </dd>
-        <dt class = "col-sm-2">
-            @Html.DisplayNameFor(model => model.Status)
-        </dt>
-        <dd class = "col-sm-10">
-            @Html.DisplayFor(model => model.Status)
-        </dd>
+
+        @if (Model.ResolvedAt.HasValue)
+        {
+            <dt class="col-sm-3">Resolution Audit</dt>
+            <dd class="col-sm-9">
+                <span class="text-info">
+                    @Model.Status by <strong>@(string.IsNullOrWhiteSpace(Model.ResolvedBy) ? "Admin" : Model.ResolvedBy)</strong>
+                    on @Model.ResolvedAt.Value.ToString("MMM dd, yyyy h:mm tt")
+                </span>
+            </dd>
+        }
     </dl>
 </div>
-<div>
-    <a asp-action="Edit" asp-route-id="@Model?.Id">Edit</a> |
-    <a asp-action="Index">Back to List</a>
+
+<div class="d-flex flex-wrap gap-2 mt-3">
+    @if (User.IsInRole("Admin"))
+    {
+        @if (Model.Status == "Pending")
+        {
+            <form asp-action="Approve" asp-route-id="@Model.Id" method="post" class="d-inline">
+                <button type="submit" class="btn btn-success">Approve Claim</button>
+            </form>
+            <form asp-action="Reject" asp-route-id="@Model.Id" method="post" class="d-inline">
+                <button type="submit" class="btn btn-outline-danger">Reject Claim</button>
+            </form>
+        }
+        <a asp-action="Edit" asp-route-id="@Model.Id" class="btn btn-outline-warning">Edit</a>
+    }
+    <a asp-action="Index" class="btn btn-outline-secondary">Back to List</a>
 </div>
