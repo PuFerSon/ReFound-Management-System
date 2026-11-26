@@ -4,163 +4,314 @@
     ViewData["Title"] = "Found Items";
 }
 
-<h1>Found Items</h1>
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h1 class="mb-0">Found Items</h1>
 
-@if (User.IsInRole("Admin"))
-{
-    <p>
-        <a asp-action="Create" class="btn btn-primary">Create New</a>
-    </p>
-}
+    @if (User.IsInRole("Admin"))
+    {
+        <div class="d-flex gap-2">
+            <a asp-action="ExportCsv" class="btn btn-outline-success">Export CSV</a>
+            <a asp-action="Create" class="btn btn-primary">+ Report Found Item</a>
+        </div>
+    }
+</div>
 
-<!-- Live AI Search Input Box -->
 <div class="mb-3">
-    <input type="text" id="foundSearchBox" class="form-control"
-           placeholder="Live AI search (e.g., 'blue tumbler in gym', 'apple laptop charger')..." />
-    <div id="aiSearchStatus" class="form-text text-info d-none mt-1">
+    <input type="text" id="foundSearchBox" class="form-control form-control-lg"
+           placeholder="Live AI search (e.g., 'something to drink water out of', 'left my hoodie where people eat')..." />
+
+    <div class="d-flex flex-wrap align-items-center gap-2 mt-2">
+        <span class="small text-muted">Try AI queries:</span>
+        <button type="button" class="btn btn-sm btn-outline-secondary rounded-pill ai-sample-btn" data-query="something to drink water out of">
+            "something to drink water out of"
+        </button>
+        <button type="button" class="btn btn-sm btn-outline-secondary rounded-pill ai-sample-btn" data-query="jacket left where people eat">
+            "jacket left where people eat"
+        </button>
+        <button type="button" class="btn btn-sm btn-outline-secondary rounded-pill ai-sample-btn" data-query="black laptop power brick">
+            "black laptop power brick"
+        </button>
+    </div>
+
+    <div id="aiSearchStatus" class="form-text text-info d-none mt-2">
         <span class="spinner-border spinner-border-sm me-1" role="status"></span>
         AI is ranking matching items...
     </div>
 </div>
 
-<table class="table table-hover align-middle">
-    <thead>
-        <tr>
-            <th>Photo</th>
-            <th>@Html.DisplayNameFor(model => model.ItemName)</th>
-            <th>@Html.DisplayNameFor(model => model.Description)</th>
-            <th>@Html.DisplayNameFor(model => model.Category)</th>
-            <th>@Html.DisplayNameFor(model => model.DateFound)</th>
-            <th>@Html.DisplayNameFor(model => model.LocationFound)</th>
-            <th>@Html.DisplayNameFor(model => model.Status)</th>
-            <th>Actions</th>
-        </tr>
-    </thead>
-    <tbody id="foundItemRows">
-@foreach (var item in Model) {
-        <tr class="searchable-row" data-item-id="@item.Id">
-            <td>
-                @if (!string.IsNullOrEmpty(item.ImagePath))
-                {
-                    <img src="@item.ImagePath" alt="@item.ItemName" style="width: 60px; height: 60px; object-fit: cover;" class="rounded border" />
-                }
-                else
-                {
-                    <span class="text-muted small">No photo</span>
-                }
-            </td>
-            <td>
-                <span class="item-title">@Html.DisplayFor(modelItem => item.ItemName)</span>
-                <span class="match-badge badge bg-info text-dark ms-2 d-none">Best Match</span>
-            </td>
-            <td>@Html.DisplayFor(modelItem => item.Description)</td>
-            <td>@Html.DisplayFor(modelItem => item.Category)</td>
-            <td>@Html.DisplayFor(modelItem => item.DateFound)</td>
-            <td>@Html.DisplayFor(modelItem => item.LocationFound)</td>
-            <td>
-                @if (item.Status == "Claimed")
-                {
-                    <span class="badge bg-success">Claimed</span>
-                }
-                else
-                {
-                    <span class="badge bg-warning text-dark">@item.Status</span>
-                }
-            </td>
-            <td>
-                <a asp-action="Details" asp-route-id="@item.Id" class="btn btn-sm btn-outline-info">Details</a>
+<div class="btn-group mb-4" role="group" aria-label="Item status filter">
+    <button type="button" class="btn btn-sm btn-info text-dark fw-semibold status-filter-btn active" data-filter="Unclaimed">
+        Unclaimed Only
+    </button>
+    <button type="button" class="btn btn-sm btn-outline-secondary status-filter-btn" data-filter="All">
+        All Items
+    </button>
+    <button type="button" class="btn btn-sm btn-outline-secondary status-filter-btn" data-filter="Claimed">
+        Claimed Only
+    </button>
+</div>
 
-                @if (User.Identity != null && User.Identity.IsAuthenticated && !User.IsInRole("Admin") && item.Status == "Unclaimed")
-                {
-                    <a asp-controller="ClaimRequests" asp-action="Create" asp-route-foundItemId="@item.Id" class="btn btn-sm btn-success">Claim</a>
-                }
+<div id="emptyStateBox" class="card bg-dark text-light border-secondary text-center p-5 mb-4 d-none">
+    <div class="card-body">
+        <h5 class="card-title mb-2">No matching items found</h5>
+        <p class="card-text text-muted small mb-3">
+            No items currently match this filter. Try switching to "All Items" or report a missing item so we can notify you.
+        </p>
+        <div class="d-flex justify-content-center gap-2">
+            <button type="button" id="emptyResetBtn" class="btn btn-sm btn-outline-info">Show All Unclaimed</button>
+            @if (User.Identity != null && User.Identity.IsAuthenticated)
+            {
+                <a asp-controller="LostItemReports" asp-action="Create" class="btn btn-sm btn-primary">+ Report a Lost Item</a>
+            }
+        </div>
+    </div>
+</div>
 
-                @if (User.IsInRole("Admin"))
-                {
-                    <a asp-action="Edit" asp-route-id="@item.Id" class="btn btn-sm btn-outline-warning">Edit</a>
-                    <a asp-action="Delete" asp-route-id="@item.Id" class="btn btn-sm btn-outline-danger">Delete</a>
-                }
-            </td>
-        </tr>
-}
-    </tbody>
-</table>
+<div id="foundItemCards" class="row row-cols-1 row-cols-md-2 row-cols-lg-3 g-4">
+    @foreach (var item in Model)
+    {
+        <div class="col searchable-card" data-item-id="@item.Id" data-status="@item.Status">
+            <div class="card h-100 bg-dark text-light border-secondary shadow-sm">
+                <div class="position-relative">
+                    @if (!string.IsNullOrEmpty(item.ImagePath))
+                    {
+                        <img src="@item.ImagePath" alt="@item.ItemName"
+                             class="card-img-top border-bottom border-secondary"
+                             style="height: 210px; object-fit: cover;"
+                             onerror="this.style.display='none'; this.nextElementSibling.classList.remove('d-none'); this.nextElementSibling.classList.add('d-flex');" />
+                        <div class="d-none align-items-center justify-content-center bg-secondary bg-opacity-25 border-bottom border-secondary text-muted"
+                             style="height: 210px;">
+                            <span>No Photo Available</span>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="d-flex align-items-center justify-content-center bg-secondary bg-opacity-25 border-bottom border-secondary text-muted"
+                             style="height: 210px;">
+                            <span>No Photo Available</span>
+                        </div>
+                    }
+
+                    <span class="match-badge badge bg-info text-dark position-absolute top-0 start-0 m-2 shadow-sm d-none">
+                        Best Match
+                    </span>
+
+                    <div class="position-absolute top-0 end-0 m-2">
+                        @if (item.Status == "Claimed")
+                        {
+                            <span class="badge bg-success shadow-sm">Claimed</span>
+                        }
+                        else
+                        {
+                            <span class="badge bg-warning text-dark shadow-sm">@item.Status</span>
+                        }
+                    </div>
+                </div>
+
+                <div class="card-body d-flex flex-column">
+                    <div class="mb-2">
+                        <span class="badge bg-secondary">@item.Category</span>
+                    </div>
+
+                    <h5 class="card-title item-title mb-2">@Html.DisplayFor(modelItem => item.ItemName)</h5>
+
+                    <p class="card-text text-light text-opacity-75 small flex-grow-1">
+                        @Html.DisplayFor(modelItem => item.Description)
+                    </p>
+
+                    <div class="small text-muted border-top border-secondary pt-2 mt-2">
+                        <div><strong>Location:</strong> @Html.DisplayFor(modelItem => item.LocationFound)</div>
+                        <div><strong>Date Found:</strong> @Html.DisplayFor(modelItem => item.DateFound)</div>
+                    </div>
+                </div>
+
+                <div class="card-footer bg-transparent border-secondary d-flex gap-2">
+                    <a asp-action="Details" asp-route-id="@item.Id" class="btn btn-sm btn-outline-info">Details</a>
+
+                    @if (User.Identity != null && User.Identity.IsAuthenticated && !User.IsInRole("Admin") && item.Status == "Unclaimed")
+                    {
+                        <a asp-controller="ClaimRequests" asp-action="Create" asp-route-foundItemId="@item.Id" class="btn btn-sm btn-success">Claim</a>
+                    }
+
+                    @if (User.IsInRole("Admin"))
+                    {
+                        <a asp-action="Edit" asp-route-id="@item.Id" class="btn btn-sm btn-outline-warning ms-auto">Edit</a>
+                        <a asp-action="Delete" asp-route-id="@item.Id" class="btn btn-sm btn-outline-danger">Delete</a>
+                    }
+                </div>
+            </div>
+        </div>
+    }
+</div>
 
 @section Scripts {
 <script>
     let searchTimeout;
+    let activeSearchController = null;
+    let currentStatusFilter = "Unclaimed";
     const searchInput = document.getElementById("foundSearchBox");
     const searchStatus = document.getElementById("aiSearchStatus");
-    const tbody = document.getElementById("foundItemRows");
-    const originalRows = Array.from(tbody.querySelectorAll("tr"));
+    const emptyStateBox = document.getElementById("emptyStateBox");
+    const emptyResetBtn = document.getElementById("emptyResetBtn");
+    const cardContainer = document.getElementById("foundItemCards");
+    const originalCards = Array.from(cardContainer.querySelectorAll(".searchable-card"));
 
-    function resetRows() {
-        originalRows.forEach(row => {
-            row.classList.remove("opacity-50");
-            const badge = row.querySelector(".match-badge");
-            if (badge) badge.classList.add("d-none");
-            tbody.appendChild(row);
+    function applyStatusFilter() {
+        let visibleCount = 0;
+
+        originalCards.forEach(card => {
+            const status = card.getAttribute("data-status");
+            const matchesStatus = currentStatusFilter === "All" || status === currentStatusFilter;
+            card.style.display = matchesStatus ? "" : "none";
+            if (matchesStatus) visibleCount++;
         });
+
+        emptyStateBox.classList.toggle("d-none", visibleCount > 0);
+    }
+
+    function resetCards() {
+        originalCards.forEach(card => {
+            card.classList.remove("opacity-50");
+            const innerCard = card.querySelector(".card");
+            if (innerCard) {
+                innerCard.classList.remove("border-info");
+                innerCard.classList.add("border-secondary");
+            }
+            const badge = card.querySelector(".match-badge");
+            if (badge) badge.classList.add("d-none");
+            cardContainer.appendChild(card);
+        });
+        applyStatusFilter();
+    }
+
+    async function runSmartSearch(query) {
+        if (activeSearchController) {
+            activeSearchController.abort();
+            activeSearchController = null;
+        }
+
+        if (!query) {
+            searchStatus.classList.add("d-none");
+            resetCards();
+            return;
+        }
+
+        activeSearchController = new AbortController();
+        searchStatus.classList.remove("d-none");
+
+        try {
+            const res = await fetch("/FoundItems/SmartSearch?query=" + encodeURIComponent(query), {
+                signal: activeSearchController.signal
+            });
+            if (!res.ok) {
+                const errText = await res.text();
+                console.error("Server error:", errText);
+                return;
+            }
+
+            const rankedIds = await res.json();
+            const matchedSet = new Set(rankedIds);
+
+            originalCards.forEach(card => {
+                card.classList.remove("opacity-50");
+                const innerCard = card.querySelector(".card");
+                if (innerCard) {
+                    innerCard.classList.remove("border-info");
+                    innerCard.classList.add("border-secondary");
+                }
+                const badge = card.querySelector(".match-badge");
+                if (badge) badge.classList.add("d-none");
+            });
+
+            rankedIds.forEach((id, index) => {
+                const card = originalCards.find(c => parseInt(c.getAttribute("data-item-id")) === id);
+                if (card) {
+                    const badge = card.querySelector(".match-badge");
+                    const innerCard = card.querySelector(".card");
+
+                    if (badge) {
+                        badge.textContent = index === 0 ? "Best Match" : "Match";
+                        badge.className = index === 0
+                            ? "match-badge badge bg-info text-dark position-absolute top-0 start-0 m-2 shadow-sm"
+                            : "match-badge badge bg-secondary position-absolute top-0 start-0 m-2 shadow-sm";
+                    }
+
+                    if (index === 0 && innerCard) {
+                        innerCard.classList.remove("border-secondary");
+                        innerCard.classList.add("border-info");
+                    }
+
+                    cardContainer.appendChild(card);
+                }
+            });
+
+            originalCards.forEach(card => {
+                const id = parseInt(card.getAttribute("data-item-id"));
+                if (!matchedSet.has(id)) {
+                    if (rankedIds.length > 0) {
+                        card.classList.add("opacity-50");
+                    }
+                    cardContainer.appendChild(card);
+                }
+            });
+
+            applyStatusFilter();
+        } catch (err) {
+            if (err.name !== "AbortError") {
+                console.error("Smart search failed:", err);
+            }
+        } finally {
+            searchStatus.classList.add("d-none");
+        }
     }
 
     searchInput.addEventListener("input", function () {
         clearTimeout(searchTimeout);
         const query = this.value.trim();
-
-        if (!query) {
-            searchStatus.classList.add("d-none");
-            resetRows();
-            return;
-        }
-
-        searchTimeout = setTimeout(async () => {
-            searchStatus.classList.remove("d-none");
-            try {
-                const res = await fetch(`/FoundItems/SmartSearch?query=${encodeURIComponent(query)}`);
-                if (!res.ok) {
-                    const errText = await res.text();
-                    console.error("Server error:", errText);
-                    return;
-                }
-
-                const rankedIds = await res.json();
-                const matchedSet = new Set(rankedIds);
-
-                originalRows.forEach(row => {
-                    row.classList.remove("opacity-50");
-                    const badge = row.querySelector(".match-badge");
-                    if (badge) badge.classList.add("d-none");
-                });
-
-                rankedIds.forEach((id, index) => {
-                    const row = originalRows.find(r => parseInt(r.getAttribute("data-item-id")) === id);
-                    if (row) {
-                        const badge = row.querySelector(".match-badge");
-                        if (badge) {
-                            badge.textContent = index === 0 ? "Best Match" : "Match";
-                            badge.className = index === 0
-                                ? "match-badge badge bg-info text-dark ms-2"
-                                : "match-badge badge bg-secondary ms-2";
-                        }
-                        tbody.appendChild(row);
-                    }
-                });
-
-                originalRows.forEach(row => {
-                    const id = parseInt(row.getAttribute("data-item-id"));
-                    if (!matchedSet.has(id)) {
-                        if (rankedIds.length > 0) {
-                            row.classList.add("opacity-50");
-                        }
-                        tbody.appendChild(row);
-                    }
-                });
-            } catch (err) {
-                console.error("Smart search failed:", err);
-            } finally {
-                searchStatus.classList.add("d-none");
-            }
-        }, 500);
+        searchTimeout = setTimeout(() => runSmartSearch(query), 900);
     });
+
+    searchInput.addEventListener("keydown", function (e) {
+        if (e.key === "Enter") {
+            e.preventDefault();
+            clearTimeout(searchTimeout);
+            runSmartSearch(this.value.trim());
+        }
+    });
+
+    document.querySelectorAll(".ai-sample-btn").forEach(btn => {
+        btn.addEventListener("click", function () {
+            const q = this.getAttribute("data-query");
+            searchInput.value = q;
+            clearTimeout(searchTimeout);
+            runSmartSearch(q);
+        });
+    });
+
+    document.querySelectorAll(".status-filter-btn").forEach(btn => {
+        btn.addEventListener("click", function () {
+            currentStatusFilter = this.getAttribute("data-filter");
+
+            document.querySelectorAll(".status-filter-btn").forEach(b => {
+                b.className = "btn btn-sm btn-outline-secondary status-filter-btn";
+            });
+            this.className = "btn btn-sm btn-info text-dark fw-semibold status-filter-btn active";
+
+            applyStatusFilter();
+        });
+    });
+
+    emptyResetBtn.addEventListener("click", function () {
+        searchInput.value = "";
+        currentStatusFilter = "Unclaimed";
+        document.querySelectorAll(".status-filter-btn").forEach(b => {
+            b.className = b.getAttribute("data-filter") === "Unclaimed"
+                ? "btn btn-sm btn-info text-dark fw-semibold status-filter-btn active"
+                : "btn btn-sm btn-outline-secondary status-filter-btn";
+        });
+        resetCards();
+    });
+
+    applyStatusFilter();
 </script>
 }

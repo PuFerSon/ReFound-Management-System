@@ -1,51 +1,75 @@
 @model ReFound.Models.ClaimRequest
 
 @{
-    ViewData["Title"] = "Edit";
+    ViewData["Title"] = "Review / Edit Claim";
+    var foundItem = ViewBag.FoundItem as ReFound.Models.FoundItem;
+    var claimant = ViewBag.Claimant as ReFound.Models.User;
 }
 
-<h1>Edit</h1>
+<div class="row justify-content-center">
+    <div class="col-md-7 col-lg-6">
+        <div class="card bg-dark text-light border-secondary shadow-sm">
+            <div class="card-header border-secondary d-flex justify-content-between align-items-center">
+                <h4 class="mb-0">Review Claim #@Model.Id</h4>
+                <span class="badge bg-secondary">Admin Override</span>
+            </div>
 
-<h4>ClaimRequest</h4>
-<hr />
-<div class="row">
-    <div class="col-md-4">
-        <form asp-action="Edit">
-            <div asp-validation-summary="ModelOnly" class="text-danger"></div>
-            <input type="hidden" asp-for="Id" />
-            <div class="form-group">
-                <label asp-for="FoundItemId" class="control-label"></label>
-                <input asp-for="FoundItemId" class="form-control" />
-                <span asp-validation-for="FoundItemId" class="text-danger"></span>
+            <div class="card-body">
+                <form asp-action="Edit">
+                    <div asp-validation-summary="ModelOnly" class="text-danger mb-3"></div>
+
+                    <input type="hidden" asp-for="Id" />
+                    <input type="hidden" asp-for="FoundItemId" />
+                    <input type="hidden" asp-for="ClaimantUserId" />
+                    <input type="hidden" asp-for="ClaimDate" />
+                    <input type="hidden" asp-for="ProofOfOwnership" />
+                    <input type="hidden" asp-for="ResolvedAt" />
+                    <input type="hidden" asp-for="ResolvedBy" />
+
+                    <div class="mb-3">
+                        <label class="form-label text-muted small">Found Item</label>
+                        <input type="text" class="form-control bg-dark text-light border-secondary" readonly
+                               value="@(foundItem != null ? $"{foundItem.ItemName} ({foundItem.LocationFound})" : $"Item #{Model.FoundItemId}")" />
+                    </div>
+
+                    <div class="row mb-3">
+                        <div class="col-sm-6 mb-2 mb-sm-0">
+                            <label class="form-label text-muted small">Claimant</label>
+                            <input type="text" class="form-control bg-dark text-light border-secondary" readonly
+                                   value="@(claimant != null ? claimant.FullName : $"User #{Model.ClaimantUserId}")" />
+                        </div>
+                        <div class="col-sm-6">
+                            <label class="form-label text-muted small">Date Submitted</label>
+                            <input type="text" class="form-control bg-dark text-light border-secondary" readonly
+                                   value="@(Model.ClaimDate.HasValue ? Model.ClaimDate.Value.ToString("MMM dd, yyyy h:mm tt") : "N/A")" />
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label text-muted small">Student's Proof of Ownership</label>
+                        <textarea class="form-control bg-dark text-light border-secondary" rows="3" readonly>@Model.ProofOfOwnership</textarea>
+                    </div>
+
+                    <div class="mb-4">
+                        <label asp-for="Status" class="form-label fw-semibold text-info">Decision Status</label>
+                        <select asp-for="Status" class="form-select bg-dark text-light border-info">
+                            <option value="Pending">Pending</option>
+                            <option value="Approved">Approved</option>
+                            <option value="Rejected">Rejected</option>
+                        </select>
+                        <span asp-validation-for="Status" class="text-danger"></span>
+                    </div>
+
+                    <div class="d-flex gap-2">
+                        <button type="submit" class="btn btn-primary">Save Decision</button>
+                        <a asp-action="Details" asp-route-id="@Model.Id" class="btn btn-outline-secondary">Cancel</a>
+                    </div>
+                </form>
             </div>
-            <div class="form-group">
-                <label asp-for="ClaimantUserId" class="control-label"></label>
-                <input asp-for="ClaimantUserId" class="form-control" />
-                <span asp-validation-for="ClaimantUserId" class="text-danger"></span>
-            </div>
-            <div class="form-group">
-                <label asp-for="ClaimDate" class="control-label"></label>
-                <input asp-for="ClaimDate" class="form-control" />
-                <span asp-validation-for="ClaimDate" class="text-danger"></span>
-            </div>
-            <div class="form-group">
-                <label asp-for="ProofOfOwnership" class="control-label"></label>
-                <input asp-for="ProofOfOwnership" class="form-control" />
-                <span asp-validation-for="ProofOfOwnership" class="text-danger"></span>
-            </div>
-            <div class="form-group">
-                <label asp-for="Status" class="control-label"></label>
-                <input asp-for="Status" class="form-control" />
-                <span asp-validation-for="Status" class="text-danger"></span>
-            </div>
-            <div class="form-group">
-                <input type="submit" value="Save" class="btn btn-primary" />
-            </div>
-        </form>
+        </div>
     </div>
 </div>
 
-<div>
-    <a asp-action="Index">Back to List</a>
-</div>
-
+@section Scripts {
+    @{await Html.RenderPartialAsync("_ValidationScriptsPartial");}
+}

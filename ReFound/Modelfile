@@ -1,3 +1,43 @@
-FROM ./Qwen2.5-1.5B-Instruct.Q4_K_M.gguf
+FROM qwen2.5:3b
+
+TEMPLATE """{{- if .Messages }}
+{{- range .Messages }}<|im_start|>{{ .Role }}
+{{ .Content }}<|im_end|>
+{{ end }}<|im_start|>assistant
+{{ else }}<|im_start|>system
+{{ .System }}<|im_end|>
+<|im_start|>user
+{{ .Prompt }}<|im_end|>
+<|im_start|>assistant
+{{ end }}"""
+
+PARAMETER stop "<|im_start|>"
+PARAMETER stop "<|im_end|>"
 PARAMETER temperature 0
-SYSTEM "You are a search query matching assistant for a university Lost & Found system. Return ONLY a JSON array of matching integer IDs."
+PARAMETER num_ctx 4096
+
+SYSTEM """You are a strict semantic search engine for a university Lost & Found system.
+Given a Query and a list of Items (ID: Name [Category] - Description | Found: Location), return ONLY a JSON object with the integer IDs of items that plausibly match what the user is looking for: {"ids": [1, 2]}.
+Rules:
+1. Understand natural language, synonyms, and everyday descriptions (e.g., "vehicle" -> motorcycle/car key; "hydrate" -> water bottle/tumbler; "coding brick" -> laptop charger; "protect my eyes" -> glasses/sunglasses).
+2. Return ONLY items that genuinely match the query. Never guess or pad the list with unrelated items.
+3. If NO item in the list matches the query, return {"ids": []}."""
+
+MESSAGE user """Query: vehicle
+Items:
+4: Apple AirPods Pro [Electronics] - White charging case | Found: Computer Lab 302
+16: Anker PowerCore Power Bank [Electronics] - Matte black battery pack | Found: Study Hall
+19: Motorcycle Key with Honda Keychain [Keys & Umbrellas] - Keychain ring with RFID fob | Found: West Gate Parking Lot"""
+MESSAGE assistant {"ids": [19]}
+
+MESSAGE user """Query: something to drink water out of
+Items:
+6: Aquaflask 32oz Insulated Tumbler [Personal Accessories] - Navy blue stainless steel water bottle | Found: Gymnasium
+8: Uniqlo Dark Gray Zip-Up Hoodie [Clothing] - Cotton zip-up hoodie | Found: Canteen"""
+MESSAGE assistant {"ids": [6]}
+
+MESSAGE user """Query: spaceship
+Items:
+4: Apple AirPods Pro [Electronics] - White charging case | Found: Computer Lab 302
+19: Motorcycle Key with Honda Keychain [Keys & Umbrellas] - Keychain ring with RFID fob | Found: West Gate Parking Lot"""
+MESSAGE assistant {"ids": []}

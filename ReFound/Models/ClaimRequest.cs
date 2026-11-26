@@ -24,5 +24,11 @@ namespace ReFound.Models
         public string ProofOfOwnership { get; set; } = "";
 
         public string Status { get; set; } = "Pending";
+
+        [Display(Name = "Resolved At")]
+        public DateTime? ResolvedAt { get; set; }
+
+        [Display(Name = "Resolved By")]
+        public string? ResolvedBy { get; set; }
     }
 }

@@ -12,6 +12,7 @@ using ReFound.Models;
 
 namespace ReFound.Controllers
 {
+    [Authorize]
     public class ClaimRequestsController : Controller
     {
         private readonly ApplicationDbContext _context;
@@ -21,13 +22,30 @@ namespace ReFound.Controllers
             _context = context;
         }
 
-        // GET: ClaimRequests
         public async Task<IActionResult> Index()
         {
-            return View(await _context.ClaimRequests.ToListAsync());
+            var query = _context.ClaimRequests.AsQueryable();
+
+            if (!User.IsInRole("Admin"))
+            {
+                var userIdStr = User.FindFirstValue(ClaimTypes.NameIdentifier);
+                if (int.TryParse(userIdStr, out int userId))
+                {
+                    query = query.Where(c => c.ClaimantUserId == userId);
+                }
+            }
+
+            var claims = await query.OrderByDescending(c => c.ClaimDate).ToListAsync();
+
+            ViewBag.ItemNames = await _context.FoundItems
+                .ToDictionaryAsync(f => f.Id, f => f.ItemName);
+
+            ViewBag.UserNames = await _context.Users
+                .ToDictionaryAsync(u => u.Id, u => u.FullName);
+
+            return View(claims);
         }
 
-        // GET: ClaimRequests/Details/5
         public async Task<IActionResult> Details(int? id)
         {
             if (id == null)
@@ -42,11 +60,23 @@ namespace ReFound.Controllers
                 return NotFound();
             }
 
+            if (!User.IsInRole("Admin"))
+            {
+                var userIdStr = User.FindFirstValue(ClaimTypes.NameIdentifier);
+                if (!int.TryParse(userIdStr, out int userId) || claimRequest.ClaimantUserId != userId)
+                {
+                    return Forbid();
+                }
+            }
+
+            if (claimRequest.FoundItemId.HasValue)
+            {
+                ViewBag.FoundItem = await _context.FoundItems.FindAsync(claimRequest.FoundItemId.Value);
+            }
+
             return View(claimRequest);
         }
 
-        // GET: ClaimRequests/Create?foundItemId=2
-        [Authorize]
         public async Task<IActionResult> Create(int? foundItemId)
         {
             await PopulateFoundItemsDropDown(foundItemId);
@@ -60,23 +90,42 @@ namespace ReFound.Controllers
             return View(model);
         }
 
-        // POST: ClaimRequests/Create
         [HttpPost]
         [ValidateAntiForgeryToken]
-        [Authorize]
         public async Task<IActionResult> Create([Bind("FoundItemId,ProofOfOwnership")] ClaimRequest claimRequest)
         {
-            // Auto-populate ClaimantUserId, ClaimDate, and Status on the server
             var userIdStr = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            int? parsedUserId = null;
             if (int.TryParse(userIdStr, out int userId))
             {
                 claimRequest.ClaimantUserId = userId;
+                parsedUserId = userId;
+            }
+
+            if (claimRequest.FoundItemId.HasValue)
+            {
+                var targetItem = await _context.FoundItems.FindAsync(claimRequest.FoundItemId.Value);
+                if (targetItem == null || targetItem.Status == "Claimed")
+                {
+                    ModelState.AddModelError("FoundItemId", "This item is no longer available to claim.");
+                }
+                else if (parsedUserId.HasValue)
+                {
+                    bool alreadyPending = await _context.ClaimRequests.AnyAsync(c =>
+                        c.FoundItemId == claimRequest.FoundItemId.Value &&
+                        c.ClaimantUserId == parsedUserId.Value &&
+                        c.Status == "Pending");
+
+                    if (alreadyPending)
+                    {
+                        ModelState.AddModelError("FoundItemId", "You already have a pending claim request for this item.");
+                    }
+                }
             }
 
             claimRequest.ClaimDate = DateTime.Now;
             claimRequest.Status = "Pending";
 
-            // Remove validation errors for fields set automatically on the server
             ModelState.Remove(nameof(ClaimRequest.ClaimDate));
 
             if (ModelState.IsValid)
@@ -90,7 +139,48 @@ namespace ReFound.Controllers
             return View(claimRequest);
         }
 
-        // GET: ClaimRequests/Edit/5
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        [Authorize(Roles = "Admin")]
+        public async Task<IActionResult> Approve(int id)
+        {
+            var claimRequest = await _context.ClaimRequests.FindAsync(id);
+            if (claimRequest == null)
+            {
+                return NotFound();
+            }
+
+            var adminName = User.Identity?.Name ?? "Admin";
+            claimRequest.Status = "Approved";
+            claimRequest.ResolvedAt = DateTime.Now;
+            claimRequest.ResolvedBy = adminName;
+
+            await SyncClaimResolutionAsync(claimRequest, adminName);
+            await _context.SaveChangesAsync();
+
+            return RedirectToAction(nameof(Details), new { id = claimRequest.Id });
+        }
+
+        [HttpPost]
+        [ValidateAntiForgeryToken]
+        [Authorize(Roles = "Admin")]
+        public async Task<IActionResult> Reject(int id)
+        {
+            var claimRequest = await _context.ClaimRequests.FindAsync(id);
+            if (claimRequest == null)
+            {
+                return NotFound();
+            }
+
+            claimRequest.Status = "Rejected";
+            claimRequest.ResolvedAt = DateTime.Now;
+            claimRequest.ResolvedBy = User.Identity?.Name ?? "Admin";
+
+            await _context.SaveChangesAsync();
+
+            return RedirectToAction(nameof(Details), new { id = claimRequest.Id });
+        }
+
         [Authorize(Roles = "Admin")]
         public async Task<IActionResult> Edit(int? id)
         {
@@ -104,14 +194,24 @@ namespace ReFound.Controllers
             {
                 return NotFound();
             }
+
+            if (claimRequest.FoundItemId.HasValue)
+            {
+                ViewBag.FoundItem = await _context.FoundItems.FindAsync(claimRequest.FoundItemId.Value);
+            }
+
+            if (claimRequest.ClaimantUserId.HasValue)
+            {
+                ViewBag.Claimant = await _context.Users.FindAsync(claimRequest.ClaimantUserId.Value);
+            }
+
             return View(claimRequest);
         }
 
-        // POST: ClaimRequests/Edit/5
         [HttpPost]
         [ValidateAntiForgeryToken]
         [Authorize(Roles = "Admin")]
-        public async Task<IActionResult> Edit(int id, [Bind("Id,FoundItemId,ClaimantUserId,ClaimDate,ProofOfOwnership,Status")] ClaimRequest claimRequest)
+        public async Task<IActionResult> Edit(int id, [Bind("Id,FoundItemId,ClaimantUserId,ClaimDate,ProofOfOwnership,Status,ResolvedAt,ResolvedBy")] ClaimRequest claimRequest)
         {
             if (id != claimRequest.Id)
             {
@@ -122,7 +222,42 @@ namespace ReFound.Controllers
             {
                 try
                 {
+                    var adminName = User.Identity?.Name ?? "Admin";
+
+                    if ((claimRequest.Status == "Approved" || claimRequest.Status == "Rejected") && !claimRequest.ResolvedAt.HasValue)
+                    {
+                        claimRequest.ResolvedAt = DateTime.Now;
+                        claimRequest.ResolvedBy = adminName;
+                    }
+                    else if (claimRequest.Status == "Pending")
+                    {
+                        claimRequest.ResolvedAt = null;
+                        claimRequest.ResolvedBy = null;
+                    }
+
                     _context.Update(claimRequest);
+
+                    if (claimRequest.Status == "Approved")
+                    {
+                        await SyncClaimResolutionAsync(claimRequest, adminName);
+                    }
+                    else if (claimRequest.FoundItemId.HasValue)
+                    {
+                        bool hasOtherApprovedClaim = await _context.ClaimRequests.AnyAsync(c =>
+                            c.FoundItemId == claimRequest.FoundItemId.Value &&
+                            c.Id != claimRequest.Id &&
+                            c.Status == "Approved");
+
+                        if (!hasOtherApprovedClaim)
+                        {
+                            var foundItem = await _context.FoundItems.FindAsync(claimRequest.FoundItemId.Value);
+                            if (foundItem != null)
+                            {
+                                foundItem.Status = "Unclaimed";
+                            }
+                        }
+                    }
+
                     await _context.SaveChangesAsync();
                 }
                 catch (DbUpdateConcurrencyException)
@@ -138,10 +273,20 @@ namespace ReFound.Controllers
                 }
                 return RedirectToAction(nameof(Index));
             }
+
+            if (claimRequest.FoundItemId.HasValue)
+            {
+                ViewBag.FoundItem = await _context.FoundItems.FindAsync(claimRequest.FoundItemId.Value);
+            }
+
+            if (claimRequest.ClaimantUserId.HasValue)
+            {
+                ViewBag.Claimant = await _context.Users.FindAsync(claimRequest.ClaimantUserId.Value);
+            }
+
             return View(claimRequest);
         }
 
-        // GET: ClaimRequests/Delete/5
         [Authorize(Roles = "Admin")]
         public async Task<IActionResult> Delete(int? id)
         {
@@ -160,7 +305,6 @@ namespace ReFound.Controllers
             return View(claimRequest);
         }
 
-        // POST: ClaimRequests/Delete/5
         [HttpPost, ActionName("Delete")]
         [ValidateAntiForgeryToken]
         [Authorize(Roles = "Admin")]
@@ -174,6 +318,30 @@ namespace ReFound.Controllers
 
             await _context.SaveChangesAsync();
             return RedirectToAction(nameof(Index));
+        }
+
+        private async Task SyncClaimResolutionAsync(ClaimRequest approvedClaim, string adminName)
+        {
+            if (!approvedClaim.FoundItemId.HasValue) return;
+
+            var foundItem = await _context.FoundItems.FindAsync(approvedClaim.FoundItemId.Value);
+            if (foundItem != null)
+            {
+                foundItem.Status = "Claimed";
+            }
+
+            var competingClaims = await _context.ClaimRequests
+                .Where(c => c.FoundItemId == approvedClaim.FoundItemId
+                         && c.Id != approvedClaim.Id
+                         && c.Status == "Pending")
+                .ToListAsync();
+
+            foreach (var other in competingClaims)
+            {
+                other.Status = "Rejected";
+                other.ResolvedAt = DateTime.Now;
+                other.ResolvedBy = $"{adminName} (Auto-closed: item claimed)";
+            }
         }
 
         private bool ClaimRequestExists(int id)
